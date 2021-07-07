@@ -1,0 +1,110 @@
+---
+title: "Prediction Assignment"
+output: html_document
+---
+
+## Overview
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+In this project, our goal would be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: <http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har> (see the section on the Weight Lifting Exercise Dataset).
+
+The training data for this project are available here:
+
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv>
+
+The test data are available here:
+
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv>
+
+## Exploratory Analysis
+
+```{r}
+# load training and testing data
+training <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", na.strings=c('#DIV/0!', '', 'NA'))
+testing <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", na.strings=c('#DIV/0!', '', 'NA'))
+
+dim(training)
+dim(testing)
+```
+
+### Data] Preparation
+The training and test data contain some variables only for identification, or with lots of missing values. For this reason, we would firstly clean the data.
+
+```{r}
+# remove variables only for identification
+training <- training[, -c(1:7)]
+testing <- testing[, -c(1:7)]
+
+# get names of variables, which miss more than 90% of values in the training data
+ns <- names(training[,(colSums(is.na(training)) / nrow(training)) > 0.9])
+
+# remove variables with lots of missing values
+training <- training[, -which(names(training) %in% ns)]
+testing <- testing[, -which(names(testing) %in% ns)]
+
+# encode classe variable as a factor
+training$classe <- factor(training$classe)
+
+dim(training)
+dim(testing)
+```
+
+After data cleaning, there are only 53 variables instead of 160 in the final training and test data.
+
+### Data Partition
+
+We would partition the training data into two data sets for training model and validation.
+
+```{r}
+library(caret)
+
+set.seed(12345)
+inTrain <- createDataPartition(y = training$classe, p = 0.70, list = FALSE)
+
+training_data <- training[inTrain,]
+validation_data <- training[-inTrain,]
+
+dim(training_data)
+dim(validation_data)
+```
+
+### Build of Prediction Models
+
+In this section, we would build multiple prediction models, and compare their accuracy.
+```{r}
+# predicting with trees
+set.seed(12345)
+mf_rpart <- train(classe ~ ., data = training_data, method = "rpart")
+pred_rpart <- predict(mf_rpart, validation_data)
+acc_rpart <- confusionMatrix(validation_data$classe, pred_rpart)$overall[1]
+
+# predicting with boosting
+fitControl <- trainControl(method="repeatedcv", number=5, repeats=1)
+mf_gbm <- train(classe ~., data=training_data, method="gbm", trControl=fitControl, verbose=FALSE)
+pred_gbm <- predict(mf_gbm, validation_data)
+acc_gbm <- confusionMatrix(validation_data$classe, pred_gbm)$overall[1]
+
+# predicting with random forests
+mf_rf  <- train(classe ~., data = training_data, method = "rf", trControl = trainControl(method="cv",number=3))
+pred_rf <- predict(mf_rf, validation_data)
+acc_rf <- confusionMatrix(validation_data$classe, pred_rf)$overall[1]
+
+acc_DF <- data.frame(model=c("trees", "boosting", "random forests"), accuracy = c(acc_rpart, acc_gbm, acc_rf))
+
+print(acc_DF)
+```
+
+From the result we could see that the random forests model shows the highest accuracy `r acc_rf`. In the following, we have also compared the prediction using the random forests model with values of classe variable in the validation data. 
+
+```{r}
+# Comparison between predictions using random forests model and classe values
+table(pred_rf, validation_data$classe)
+```
+## Prediction of Testing Data 
+
+Finally, we decide to choose the random forests model to predict the testing data. The prediction results are shown as follows:
+```{r}
+pred_test <- predict(mf_rf, newdata=testing)
+pred_test
+```
